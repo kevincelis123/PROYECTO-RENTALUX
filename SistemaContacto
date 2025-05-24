@@ -1,0 +1,246 @@
+<script setup>
+import AppLayout from '@/Layouts/AppLayout.vue';
+import { Head, Link, router, usePage } from '@inertiajs/vue3';
+import { ref, computed, watch } from 'vue';
+import {
+    MapPinIcon, TagIcon, 
+    ArrowsPointingOutIcon, 
+    HomeModernIcon,      
+    SparklesIcon,        
+    PhoneIcon,
+    HeartIcon as HeartOutlineIcon,
+} from '@heroicons/vue/24/outline';
+import { HeartIcon as HeartSolidIcon } from '@heroicons/vue/24/solid';
+import { useToast } from "vue-toastification";
+
+const props = defineProps({
+    property: Object, 
+});
+
+const user = computed(() => usePage().props.auth.user);
+const toast = useToast();
+
+const formatPrice = (price) => {
+    return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(price);
+};
+
+// Estado para la imagen principal del slider
+const currentImageIndex = ref(0);
+const currentImage = computed(() => {
+    if (props.property.images && props.property.images.length > 0) {
+        return '/storage/' + props.property.images[currentImageIndex.value].image_path;
+    }
+    return 'https://via.placeholder.com/800x600.png?text=Sin+Imagen'; // Placeholder grande
+});
+
+const setCurrentImage = (index) => {
+    currentImageIndex.value = index;
+};
+
+const googleMapsEmbedUrl = computed(() => {
+    if (props.property.latitude && props.property.longitude) {
+        // q=lat,lng para poner un marcador. zoom se puede ajustar.
+        return `https://maps.google.com/maps?q=${props.property.latitude},${props.property.longitude}&hl=es&z=15&output=embed`;
+    }
+    return '';
+});
+
+const whatsappLink = computed(() => {
+    if (props.property.user && props.property.user.contact_number) {
+        const title = encodeURIComponent(props.property.title);
+        const message = encodeURIComponent(`Hola, estoy interesado en la propiedad '${props.property.title}' que vi en Rentalux.`);
+        let contactNumber = props.property.user.contact_number.replace(/[^0-9]/g, '');
+
+        return `https://wa.me/${contactNumber}?text=${message}`;
+    }
+    return '#';
+});
+
+// Estado local para is_favorite para reactividad inmediata
+const localIsFavorite = ref(props.property.is_favorite);
+watch(() => props.property.is_favorite, (newValue) => {
+  localIsFavorite.value = newValue;
+});
+
+const toggleFavorite = () => {
+    if (!user.value) {
+        router.visit(route('login'));
+        return;
+    }
+
+    if (localIsFavorite.value) {
+        // Ya es favorito, queremos ELIMINAR
+        router.delete(route('favorites.destroy', props.property.id), {
+            preserveScroll: true,
+            onSuccess: () => {
+                localIsFavorite.value = false; // Actualizar estado local
+                toast.success("Propiedad eliminada de favoritos!");
+                // Forzar una recarga de los datos de la propiedad para asegurar consistencia, 
+                // especialmente si 'is_favorite' afecta otros cálculos o vistas.
+                router.reload({ only: ['property'], preserveScroll: true });
+            },
+            onError: (errors) => {
+                console.error('Error al eliminar de favoritos:', errors);
+                toast.error("Error al eliminar de favoritos.");
+                // Opcional: revertir el cambio en la UI
+                // localIsFavorite.value = true;
+            }
+        });
+    } else {
+        // No es favorito, queremos AGREGAR
+        router.post(route('favorites.store', props.property.id), {}, {
+            preserveScroll: true,
+            onSuccess: () => {
+                localIsFavorite.value = true; // Actualizar estado local
+                toast.success("Propiedad añadida a favoritos!");
+                router.reload({ only: ['property'], preserveScroll: true });
+            },
+            onError: (errors) => {
+                console.error('Error al agregar a favoritos:', errors);
+                toast.error("Error al agregar a favoritos.");
+                // Opcional: revertir el cambio en la UI
+                // localIsFavorite.value = false;
+            }
+        });
+    }
+};
+
+</script>
+
+<template>
+    <AppLayout :title="property.title">
+        <Head :title="property.title" />
+
+        <div class="py-12 bg-rentalux-bg-light">
+            <div class="max-w-7xl mx-auto sm:px-6 lg:px-8">
+                <div class="bg-white shadow-xl sm:rounded-lg overflow-hidden">
+                    
+                    <!-- Galería de Imágenes -->
+                    <div class="p-2 sm:p-4 bg-gray-50">
+                        <div class="w-full aspect-[16/9] bg-gray-200 rounded-md overflow-hidden mb-2">
+                            <img :src="currentImage" :alt="property.title" class="w-full h-full object-contain">
+                        </div>
+                        <div v-if="property.images && property.images.length > 1" class="flex space-x-2 overflow-x-auto pb-2">
+                            <div v-for="(image, index) in property.images" :key="image.id" 
+                                 @click="setCurrentImage(index)"
+                                 class="w-24 h-16 rounded-md overflow-hidden cursor-pointer border-2"
+                                 :class="currentImageIndex === index ? 'border-rentalux-gold' : 'border-transparent hover:border-gray-400'">
+                                <img :src="'/storage/' + image.image_path" :alt="'Imagen ' + (index + 1)" class="w-full h-full object-cover">
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="p-6 md:p-8">
+                        <div class="grid grid-cols-1 md:grid-cols-3 gap-8">
+                            <!-- Columna Principal de Información -->
+                            <div class="md:col-span-2">
+                                <div class="flex justify-between items-start mb-2">
+                                    <h1 class="text-3xl font-bold text-rentalux-text-dark">{{ property.title }}</h1>
+                                    <button v-if="user" @click="toggleFavorite" 
+                                            class="p-2 rounded-full text-gray-600 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-rentalux-gold">
+                                        <HeartSolidIcon v-if="localIsFavorite" class="h-7 w-7 text-red-500" />
+                                        <HeartOutlineIcon v-else class="h-7 w-7" />
+                                    </button>
+                                    <button v-else @click="router.visit(route('login'))"
+                                            class="p-2 rounded-full text-gray-600 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-rentalux-gold">
+                                        <HeartOutlineIcon class="h-7 w-7" />
+                                    </button>
+                                </div>
+                                
+                                <div class="flex items-center text-sm text-gray-600 mb-4">
+                                    <MapPinIcon class="h-5 w-5 mr-1 flex-shrink-0" />
+                                    <span>{{ property.address }}</span>
+                                </div>
+
+                                <div class="mb-6">
+                                    <p class="text-3xl font-extrabold text-rentalux-gold">{{ formatPrice(property.price) }}</p>
+                                    <p class="text-md text-gray-700 flex items-center mt-1">
+                                        <TagIcon class="h-5 w-5 mr-1 flex-shrink-0" /> {{ property.property_type.name }}
+                                    </p>
+                                </div>
+
+                                <div class="mb-6">
+                                    <h2 class="text-xl font-semibold text-rentalux-text-dark mb-3">Características</h2>
+                                    <div class="grid grid-cols-2 sm:grid-cols-3 gap-4 text-gray-700">
+                                        <div class="flex items-center">
+                                            <HomeModernIcon class="h-6 w-6 mr-2 text-rentalux-gold" />
+                                            <span>{{ property.bedrooms }} Habitaciones</span>
+                                        </div>
+                                        <div class="flex items-center">
+                                            <SparklesIcon class="h-6 w-6 mr-2 text-rentalux-gold" />
+                                            <span>{{ property.bathrooms }} Baños</span>
+                                        </div>
+                                        <div class="flex items-center">
+                                            <ArrowsPointingOutIcon class="h-6 w-6 mr-2 text-rentalux-gold" />
+                                            <span>{{ property.area }} m²</span>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="mb-6">
+                                    <h2 class="text-xl font-semibold text-rentalux-text-dark mb-3">Descripción</h2>
+                                    <div class="prose max-w-none text-gray-700" v-html="property.description"></div>
+                                </div>
+
+                                <div v-if="googleMapsEmbedUrl" class="mb-6">
+                                    <h2 class="text-xl font-semibold text-rentalux-text-dark mb-3">Ubicación</h2>
+                                    <div class="aspect-w-16 aspect-h-9 rounded-md overflow-hidden">
+                                         <iframe :src="googleMapsEmbedUrl" width="100%" height="400" style="border:0;" allowfullscreen="" loading="lazy" referrerpolicy="no-referrer-when-downgrade"></iframe>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Columna Lateral (Vendedor) -->
+                            <div class="md:col-span-1">
+                                <div class="bg-gray-50 p-6 rounded-lg shadow">
+                                    <h2 class="text-xl font-semibold text-rentalux-text-dark mb-4">Información del Vendedor</h2>
+                                    <div v-if="property.user" class="flex items-center mb-4">
+                                        <img v-if="property.user.profile_photo_url" :src="property.user.profile_photo_url" :alt="property.user.name" class="h-12 w-12 rounded-full mr-3 object-cover">
+                                        <div v-else class="h-12 w-12 rounded-full bg-gray-300 flex items-center justify-center text-rentalux-text-dark font-semibold text-lg mr-3">
+                                            {{ property.user.name ? property.user.name.charAt(0).toUpperCase() : 'U' }}
+                                        </div>
+                                        <div>
+                                            <p class="font-semibold text-rentalux-text-dark">{{ property.user.name }}</p>
+                                            <!-- Podrías añadir más info del user aquí si es relevante -->
+                                        </div>
+                                    </div>
+                                    
+                                    <a v-if="property.user && property.user.contact_number" 
+                                       :href="whatsappLink" 
+                                       target="_blank" 
+                                       class="w-full inline-flex items-center justify-center px-6 py-3 border border-transparent rounded-md shadow-sm text-base font-medium text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 focus:ring-offset-rentalux-bg-light">
+                                        <PhoneIcon class="h-5 w-5 mr-2" /> <!-- O un icono de WhatsApp si tienes -->
+                                        Contactar por WhatsApp
+                                    </a>
+                                    <div v-else class="text-sm text-gray-500">
+                                        Información de contacto no disponible.
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </AppLayout>
+</template>
+
+<style scoped>
+.prose :where(p) {
+  margin-top: 0.5em;
+  margin-bottom: 0.5em;
+}
+/* Estilos para el carrusel simple de imágenes */
+.aspect-\[16\/9\] {
+  aspect-ratio: 16 / 9;
+}
+
+/* Para el scroll de miniaturas */
+.overflow-x-auto::-webkit-scrollbar {
+  height: 8px;
+}
+.overflow-x-auto::-webkit-scrollbar-thumb {
+  background-color: #cbd5e1; 
+  border-radius: 4px;
+}
+</style> 
